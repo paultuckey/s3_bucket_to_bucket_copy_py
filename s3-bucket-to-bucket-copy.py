@@ -17,6 +17,7 @@ aws_secret_key = 'yyyy'
 srcBucketName = 'AAAAAAA'
 dstBucketName = 'BBBBBB'
 
+
 class Worker(threading.Thread):
     def __init__(self, queue):
         threading.Thread.__init__(self)
@@ -39,7 +40,7 @@ class Worker(threading.Thread):
             self.queue.task_done()
 
 
-def copyBucket(maxKeys = 1000):
+def copyBucket(maxKeys=1000):
     print 'start'
 
     conn = S3Connection(aws_key, aws_secret_key)
@@ -56,7 +57,7 @@ def copyBucket(maxKeys = 1000):
 
     while True:
         print 'fetch next 1000, backlog currently at %i' % q.qsize()
-        keys = srcBucket.get_all_keys(max_keys = maxKeys, marker = resultMarker)
+        keys = srcBucket.get_all_keys(max_keys=maxKeys, marker=resultMarker)
         for k in keys:
             q.put(k.key)
         if len(keys) < maxKeys:
@@ -70,5 +71,3 @@ def copyBucket(maxKeys = 1000):
 
 if __name__ == "__main__":
     copyBucket()
-
-
