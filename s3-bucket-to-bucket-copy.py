@@ -33,7 +33,9 @@ class Worker(threading.Thread):
             dist_key = Key(self.dstBucket, k.key)
             if not dist_key.exists() or k.etag != dist_key.etag:
                 print 'copy: ' + k.key
+                acl = self.srcBucket.get_acl(k)
                 self.dstBucket.copy_key(k.key, srcBucketName, k.key, storage_class=k.storage_class)
+                dist_key.set_acl(acl)
             else:
                 print 'exists and etag matches: ' + k.key
 
