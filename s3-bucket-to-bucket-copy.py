@@ -14,6 +14,7 @@ import threading
 
 aws_key = 'xxx'
 aws_secret_key = 'yyyy'
+
 srcBucketName = 'AAAAAAA'
 dstBucketName = 'BBBBBB'
 
@@ -57,10 +58,13 @@ def copyBucket(maxKeys=1000):
         t.daemon = True
         t.start()
 
+    i = 0
+
     while True:
-        print 'fetch next 1000, backlog currently at %i' % q.qsize()
+        print 'fetch next %s, backlog currently at %s, have done %s' % (maxKeys, q.qsize(), i)
         keys = srcBucket.get_all_keys(max_keys=maxKeys, marker=resultMarker)
         for k in keys:
+            i += 1
             q.put(k.key)
         if len(keys) < maxKeys:
             print 'Done'
