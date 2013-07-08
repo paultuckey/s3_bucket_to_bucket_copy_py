@@ -22,28 +22,31 @@ import threading
 import time
 import logging
 
-aws_key = 'xxx'
-aws_secret_key = 'yyyy'
+default_aws_key = 'xxx'
+default_aws_secret_key = 'yyyy'
 
-srcBucketName = 'AAAAAAA'
-dstBucketName = 'BBBBBB'
+default_src_bucket_name = 'AAAAAAA'
+default_dst_bucket_name = 'BBBBBB'
 
 # Log everything, and send it to stderr.
 logging.basicConfig(level=logging.WARN)
 
 class Worker(threading.Thread):
-    def __init__(self, queue, thread_id):
+    def __init__(self, queue, thread_id, aws_key, aws_secret_key, src_bucket_name, dst_bucket_name):
         threading.Thread.__init__(self)
         self.queue = queue
         self.done_count = 0
         self.thread_id = thread_id
-        self.__init_s3()
+        self.aws_key = aws_key
+        self.aws_secret_key = aws_secret_key
+        self.src_bucket_name = src_bucket_name
+        self.dst_bucket_name = dst_bucket_name
 
     def __init_s3(self):
         print '  t%s: conn to s3' % self.thread_id
-        self.conn = S3Connection(aws_key, aws_secret_key)
-        self.srcBucket = self.conn.get_bucket(srcBucketName)
-        self.dstBucket = self.conn.get_bucket(dstBucketName)
+        self.conn = S3Connection(self.aws_key, self.aws_secret_key)
+        self.srcBucket = self.conn.get_bucket(self.src_bucket_name)
+        self.dstBucket = self.conn.get_bucket(self.dst_bucket_name)
 
     def run(self):
         while True:
@@ -56,7 +59,7 @@ class Worker(threading.Thread):
                 if not dist_key.exists() or k.etag != dist_key.etag:
                     print '  t%s: Copy: %s' % (self.thread_id, k.key)
                     acl = self.srcBucket.get_acl(k)
-                    self.dstBucket.copy_key(k.key, srcBucketName, k.key, storage_class=k.storage_class)
+                    self.dstBucket.copy_key(k.key, self.src_bucket_name, k.key, storage_class=k.storage_class)
                     dist_key.set_acl(acl)
                 else:
                     print '  t%s: Exists and etag matches: %s' % (self.thread_id, k.key)
@@ -66,40 +69,41 @@ class Worker(threading.Thread):
             self.queue.task_done()
 
 
-def copyBucket():
+def copy_bucket(aws_key, aws_secret_key, src_bucket_name, dst_bucket_name):
     print
-    print 'Start copy of %s to %s' % (srcBucketName, dstBucketName)
+    print 'Start copy of %s to %s' % (src_bucket_name, dst_bucket_name)
     print
-    maxKeys = 1000
+    max_keys = 1000
 
     conn = S3Connection(aws_key, aws_secret_key)
-    srcBucket = conn.get_bucket(srcBucketName)
+    srcBucket = conn.get_bucket(src_bucket_name)
 
-    resultMarker = ''
+    result_marker = ''
     q = LifoQueue(maxsize=5000)
 
     for i in range(20):
         print 'Adding worker thread %s for queue processing' % i
-        t = Worker(q, i)
+        t = Worker(q, i, aws_key, aws_secret_key, src_bucket_name, dst_bucket_name)
         t.daemon = True
         t.start()
 
     i = 0
 
     while True:
-        print 'Fetch next %s, backlog currently at %s, have done %s' % (maxKeys, q.qsize(), i)
+        print 'Fetch next %s, backlog currently at %s, have done %s' % (max_keys, q.qsize(), i)
         try:
-            keys = srcBucket.get_all_keys(max_keys=maxKeys, marker=resultMarker)
+            keys = srcBucket.get_all_keys(max_keys=max_keys, marker=result_marker)
             if len(keys) == 0:
                 break
             for k in keys:
                 i += 1
                 q.put(k.key)
-            if len(keys) < maxKeys:
-                print 'Done'
+            print 'Added %s keys to queue' % len(keys)
+            if len(keys) < max_keys:
+                print 'All items now in queue'
                 break
-            resultMarker = keys[maxKeys - 1].key
-            while q.qsize() > (q.maxsize - maxKeys):
+            result_marker = keys[max_keys - 1].key
+            while q.qsize() > (q.maxsize - max_keys):
                 time.sleep(1)  # sleep if our queue is getting too big for the next set of keys
         except BaseException:
             logging.exception('error during fetch, quitting')
@@ -113,4 +117,4 @@ def copyBucket():
 
 
 if __name__ == "__main__":
-    copyBucket()
+    copy_bucket(default_aws_key, default_aws_secret_key, default_src_bucket_name, default_dst_bucket_name)
