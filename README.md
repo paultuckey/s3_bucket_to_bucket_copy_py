@@ -1,4 +1,4 @@
-s3_bucket_to_bucket_copy-py
+s3_bucket_to_bucket_copy.py
 ===========================
 
 Script to copy all files from an AWS S3 Bucket in one region to another bucket in a different region using many
