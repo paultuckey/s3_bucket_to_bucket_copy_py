@@ -8,7 +8,7 @@ This script will work even if the buckets are in different regions.
 
 Useful for copying from a production environment back to a test environment.
 
-python s3-bucket-to-bucket-copy.py > log-s3.log &
+python s3_bucket_to_bucket_copy.py > log-s3.log &
 
 tail -f log-s3.log
 tail -f log-s3.log | grep Fetch  # show only fetches
