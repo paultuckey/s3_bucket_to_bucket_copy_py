@@ -8,7 +8,7 @@ This script will work even if the buckets are in different regions.
 
 Useful for copying from a production environment back to a test environment.
 
-python s3_bucket_to_bucket_copy.py > log-s3.log &
+python s3_bucket_to_bucket_copy.py src dest > log-s3.log &
 
 tail -f log-s3.log
 tail -f log-s3.log | grep Fetch  # show only fetches
@@ -21,18 +21,26 @@ from Queue import LifoQueue
 import threading
 import time
 import logging
+import os
+import ConfigParser
+import sys
 
-default_aws_key = 'xxx'
-default_aws_secret_key = 'yyyy'
 
-default_src_bucket_name = 'AAAAAAA'
-default_dst_bucket_name = 'BBBBBB'
+j = os.path.join
+config_fn = j(os.environ['HOME'], '.s3cfg')
+config = ConfigParser.ConfigParser()
+if not config.read(config_fn):
+    raise EnvironmentError("You need to configure s3cmd, 's3cmd --configure'")
+
+default_aws_key = config.get('default', 'access_key')
+default_aws_secret_key = config.get('default', 'secret_key')
 
 # Log everything, and send it to stderr.
 logging.basicConfig(level=logging.WARN)
 
 class Worker(threading.Thread):
-    def __init__(self, queue, thread_id, aws_key, aws_secret_key, src_bucket_name, dst_bucket_name):
+    def __init__(self, queue, thread_id, aws_key, aws_secret_key,
+                 src_bucket_name, dst_bucket_name, src_path, dst_path):
         threading.Thread.__init__(self)
         self.queue = queue
         self.done_count = 0
@@ -41,6 +49,8 @@ class Worker(threading.Thread):
         self.aws_secret_key = aws_secret_key
         self.src_bucket_name = src_bucket_name
         self.dst_bucket_name = dst_bucket_name
+        self.src_path = src_path
+        self.dst_path = dst_path
 
     def __init_s3(self):
         print '  t%s: conn to s3' % self.thread_id
@@ -69,30 +79,48 @@ class Worker(threading.Thread):
             self.queue.task_done()
 
 
-def copy_bucket(aws_key, aws_secret_key, src_bucket_name, dst_bucket_name):
-    print
-    print 'Start copy of %s to %s' % (src_bucket_name, dst_bucket_name)
-    print
+def copy_bucket(aws_key, aws_secret_key, src, dst):
     max_keys = 1000
 
     conn = S3Connection(aws_key, aws_secret_key)
+    try:
+        (src_bucket_name, src_path) = src.split('/', 1)
+    except ValueError:
+        src_bucket_name = src
+        src_path = None
+    try:
+        (dst_bucket_name, dst_path) = dst.split('/', 1)
+    except ValueError:
+        dst_bucket_name = dst
+        dst_path = None
+    if dst_path is not None:
+        raise ValueError("not currently implemented to set dest path; must use default, which will mirror the source")
     srcBucket = conn.get_bucket(src_bucket_name)
+
+    print
+    print 'Start copy of %s to %s' % (src, dst)
+    print
 
     result_marker = ''
     q = LifoQueue(maxsize=5000)
 
     for i in range(20):
         print 'Adding worker thread %s for queue processing' % i
-        t = Worker(q, i, aws_key, aws_secret_key, src_bucket_name, dst_bucket_name)
+        t = Worker(q, i, aws_key, aws_secret_key,
+                   src_bucket_name, dst_bucket_name,
+                   src_path, dst_path)
         t.daemon = True
         t.start()
 
     i = 0
 
     while True:
-        print 'Fetch next %s, backlog currently at %s, have done %s' % (max_keys, q.qsize(), i)
+        print 'Fetch next %s, backlog currently at %s, have done %s' % \
+            (max_keys, q.qsize(), i)
         try:
-            keys = srcBucket.get_all_keys(max_keys=max_keys, marker=result_marker)
+            keys = srcBucket.get_all_keys(max_keys=max_keys,
+                                          marker=result_marker,
+                                          prefix=src_path or '')
             if len(keys) == 0:
                 break
             for k in keys:
@@ -117,4 +145,5 @@ def copy_bucket(aws_key, aws_secret_key, src_bucket_name, dst_bucket_name):
 
 
 if __name__ == "__main__":
-    copy_bucket(default_aws_key, default_aws_secret_key, default_src_bucket_name, default_dst_bucket_name)
+    (src, dest) = sys.argv[1:3]
+    copy_bucket(default_aws_key, default_aws_secret_key, src, dest)
