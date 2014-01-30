@@ -16,7 +16,6 @@ grep Fetch log-s3.log
 
 """
 from boto.s3.connection import S3Connection
-from boto.s3.key import Key
 from Queue import LifoQueue
 import threading
 import time
@@ -25,18 +24,9 @@ import os
 import ConfigParser
 import sys
 
-
-j = os.path.join
-config_fn = j(os.environ['HOME'], '.s3cfg')
-config = ConfigParser.ConfigParser()
-if not config.read(config_fn):
-    raise EnvironmentError("You need to configure s3cmd, 's3cmd --configure'")
-
-default_aws_key = config.get('default', 'access_key')
-default_aws_secret_key = config.get('default', 'secret_key')
-
 # Log everything, and send it to stderr.
 logging.basicConfig(level=logging.WARN)
+
 
 class Worker(threading.Thread):
     def __init__(self, queue, thread_id, aws_key, aws_secret_key,
@@ -51,12 +41,15 @@ class Worker(threading.Thread):
         self.dst_bucket_name = dst_bucket_name
         self.src_path = src_path
         self.dst_path = dst_path
+        self.conn = None
+        self.src_bucket = None
+        self.dest_bucket = None
 
     def __init_s3(self):
         print '  t%s: conn to s3' % self.thread_id
         self.conn = S3Connection(self.aws_key, self.aws_secret_key)
-        self.srcBucket = self.conn.get_bucket(self.src_bucket_name)
-        self.dstBucket = self.conn.get_bucket(self.dst_bucket_name)
+        self.src_bucket = self.conn.get_bucket(self.src_bucket_name)
+        self.dest_bucket = self.conn.get_bucket(self.dst_bucket_name)
 
     def run(self):
         while True:
@@ -64,12 +57,13 @@ class Worker(threading.Thread):
                 if self.done_count % 1000 == 0:  # re-init conn to s3 every 1000 copies as we get failures sometimes
                     self.__init_s3()
                 key_name = self.queue.get()
-                k = Key(self.srcBucket, key_name)
-                dist_key = Key(self.dstBucket, k.key)
-                if not dist_key.exists() or k.etag != dist_key.etag:
+                k = self.src_bucket.get_key(key_name)
+                dist_key = self.dest_bucket.get_key(k.key)
+                if not dist_key or not dist_key.exists() or k.etag != dist_key.etag:
                     print '  t%s: Copy: %s' % (self.thread_id, k.key)
-                    acl = self.srcBucket.get_acl(k)
-                    self.dstBucket.copy_key(k.key, self.src_bucket_name, k.key, storage_class=k.storage_class)
+                    acl = self.src_bucket.get_acl(k)
+                    self.dest_bucket.copy_key(k.key, self.src_bucket_name, k.key, storage_class=k.storage_class)
+                    dist_key = self.dest_bucket.get_key(k.key)
                     dist_key.set_acl(acl)
                 else:
                     print '  t%s: Exists and etag matches: %s' % (self.thread_id, k.key)
@@ -95,7 +89,7 @@ def copy_bucket(aws_key, aws_secret_key, src, dst):
         dst_path = None
     if dst_path is not None:
         raise ValueError("not currently implemented to set dest path; must use default, which will mirror the source")
-    srcBucket = conn.get_bucket(src_bucket_name)
+    src_bucket = conn.get_bucket(src_bucket_name)
 
     print
     print 'Start copy of %s to %s' % (src, dst)
@@ -118,9 +112,9 @@ def copy_bucket(aws_key, aws_secret_key, src, dst):
         print 'Fetch next %s, backlog currently at %s, have done %s' % \
             (max_keys, q.qsize(), i)
         try:
-            keys = srcBucket.get_all_keys(max_keys=max_keys,
-                                          marker=result_marker,
-                                          prefix=src_path or '')
+            keys = src_bucket.get_all_keys(max_keys=max_keys,
+                                           marker=result_marker,
+                                           prefix=src_path or '')
             if len(keys) == 0:
                 break
             for k in keys:
@@ -145,5 +139,15 @@ def copy_bucket(aws_key, aws_secret_key, src, dst):
 
 
 if __name__ == "__main__":
-    (src, dest) = sys.argv[1:3]
-    copy_bucket(default_aws_key, default_aws_secret_key, src, dest)
+
+    j = os.path.join
+    config_fn = j(os.environ['HOME'], '.s3cfg')
+    config = ConfigParser.ConfigParser()
+    if not config.read(config_fn):
+        raise EnvironmentError("You need to configure s3cmd, 's3cmd --configure'")
+
+    default_aws_key = config.get('default', 'access_key')
+    default_aws_secret_key = config.get('default', 'secret_key')
+
+    (src_arg, dest_arg) = sys.argv[1:3]
+    copy_bucket(default_aws_key, default_aws_secret_key, src_arg, dest_arg)
