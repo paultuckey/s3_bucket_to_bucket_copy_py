@@ -115,7 +115,7 @@ def copy_bucket(aws_key, aws_secret_key, args):
     result_marker = ''
     q = LifoQueue(maxsize=5000)
 
-    for i in range(20):
+    for i in xrange(args.threads_no):
         if args.verbose:
             print 'Adding worker thread %s for queue processing' % i
         t = Worker(q, i, aws_key, aws_secret_key,
@@ -198,7 +198,13 @@ if __name__ == "__main__":
                         dest='rr',
                         required = False,
                         action = 'store_true',
-                        default = False)
+                        default = False),
+    parser.add_argument('-t', '--thread-count',
+                        help='Number of worker threads processing the objects',
+                        dest='threads_no',
+                        required = False,
+                        type = int,
+                        default = 20)
     parser.add_argument('src_bucket', 
                         help = "Source s3 bucket name and optional path")
     parser.add_argument('dest_bucket',
