@@ -25,6 +25,11 @@ sudo easy_install boto
 pip install -U boto
 ```
 
+When dealing with a very large number of files, you might want to try to use more worker threads:
+
+```
+s3_bucket_to_bucket_copy.py <source_bucket_name>[/<prefix>] <dest_bucket_name> -t 100
+```
 
 Developed by us guys at [Showcase Workshop](http://www.showcaseworkshop.com).
 
