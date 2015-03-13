@@ -71,15 +71,17 @@ class Worker(threading.Thread):
                     else:
                         s_class = k.storage_class
 
-                    self.dest_bucket.copy_key(k.key, self.src_bucket_name, k.key, storage_class=s_class, encrypt_key=self.args.encrypt)
+                    key_suffix = k.key[len(self.src_path):]
+                    new_key = self.dst_path + key_suffix if self.dst_path[-1] == "/" else self.dst_path + "/" + key_suffix
+                    self.dest_bucket.copy_key(new_key, self.src_bucket_name, k.key, storage_class=s_class, encrypt_key=self.args.encrypt)
 
                     if self.args.acl == False:
                         acl = self.src_bucket.get_acl(k)
-                        dist_key = self.dest_bucket.get_key(k.key)
+                        dist_key = self.dest_bucket.get_key(new_key)
                         dist_key.set_acl(acl)
                 else:
                     if self.args.verbose:
-                        print '  t%s: Exists and etag matches: %s' % (self.thread_id, k.key)
+                        print '  t%s: Exists and etag matches: %s' % (self.thread_id, new_key)
                 self.done_count += 1
             except BaseException:
                 logging.exception('  t%s: error during copy' % self.thread_id)
@@ -103,8 +105,6 @@ def copy_bucket(aws_key, aws_secret_key, args):
     except ValueError:
         dst_bucket_name = dst
         dst_path = None
-    if dst_path is not None:
-        raise ValueError("not currently implemented to set dest path; must use default, which will mirror the source")
     src_bucket = conn.get_bucket(src_bucket_name)
 
     if args.verbose:
